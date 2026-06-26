@@ -290,13 +290,23 @@ class PaymentSelectView(ui.View):
             return await interaction.response.send_message(
                 embed=error_embed("Error", "Metode pembayaran tidak ditemukan."), ephemeral=True
             )
-        modal = OrderNoteModal(self.product, payment, self.db)
+        # Cek apakah produk ini punya custom fields
+        fields = await self.db.get_product_fields(self.product["id"])
+        if fields:
+            modal = DynamicOrderModal(self.product, payment, self.db, fields, variant=None)
+        else:
+            modal = OrderNoteModal(self.product, payment, self.db)
         await interaction.response.send_modal(modal)
 
 
 # ─── Order Note Modal ─────────────────────────────────────────────────────────
 
 class OrderNoteModal(ui.Modal, title="📝 Detail Pembelian"):
+    """
+    Fallback modal untuk produk yang BELUM diset custom fields-nya.
+    Hanya tampil voucher + catatan saja.
+    """
+
     voucher = ui.TextInput(
         label="Kode Voucher (opsional)",
         placeholder="Masukkan kode voucher jika ada...",
@@ -327,7 +337,97 @@ class OrderNoteModal(ui.Modal, title="📝 Detail Pembelian"):
             payment=self.payment,
             voucher_code=self.voucher.value.strip(),
             notes=self.notes.value.strip(),
+            customer_info={},
         )
+
+
+# ─── Dynamic Order Modal ──────────────────────────────────────────────────────
+
+class DynamicOrderModal(ui.Modal):
+    """
+    Modal pembelian dengan field dinamis per produk.
+    Field di-generate dari tabel product_fields (max 4 custom + 1 voucher = 5 total).
+    Dipakai untuk produk TANPA varian maupun DENGAN varian.
+    """
+
+    def __init__(
+        self,
+        product,
+        payment,
+        db: "Database",
+        fields: list,          # list of sqlite3.Row from product_fields
+        variant=None,          # jika produk dengan varian
+    ) -> None:
+        super().__init__(title="📝 Detail Pembelian")
+        self.product = product
+        self.payment = payment
+        self.db = db
+        self.variant = variant
+        self._field_keys: list[str] = []   # urutan key untuk baca nilai nanti
+
+        # ── Tambah field custom (max 4 agar slot ke-5 untuk voucher) ──────────
+        for i, f in enumerate(fields[:4]):
+            key = f"custom_field_{i}"
+            self._field_keys.append(key)
+            text_input = ui.TextInput(
+                label=f["label"][:45],
+                placeholder=f["placeholder"][:100] if f["placeholder"] else "",
+                required=bool(f["is_required"]),
+                max_length=200,
+            )
+            self.add_item(text_input)
+
+        # ── Slot terakhir selalu voucher ──────────────────────────────────────
+        self._voucher_input = ui.TextInput(
+            label="Kode Voucher (opsional)",
+            placeholder="Masukkan kode voucher jika ada...",
+            required=False,
+            max_length=50,
+        )
+        self.add_item(self._voucher_input)
+
+    def _collect_customer_info(self, fields: list) -> dict:
+        """Kumpulkan nilai yang diisi user, map ke label field."""
+        result: dict[str, str] = {}
+        children = [
+            item for item in self.children
+            if isinstance(item, ui.TextInput) and item is not self._voucher_input
+        ]
+        for i, field_row in enumerate(fields[:4]):
+            if i < len(children):
+                val = children[i].value.strip()
+                result[field_row["label"]] = val
+        return result
+
+    async def on_submit(self, interaction: discord.Interaction) -> None:
+        # Ambil kembali fields dari DB untuk mapping label
+        fields = await self.db.get_product_fields(self.product["id"])
+        customer_info = self._collect_customer_info(fields)
+        voucher_code = self._voucher_input.value.strip()
+
+        if self.variant:
+            from cogs.order import process_purchase_variant
+            await process_purchase_variant(
+                interaction=interaction,
+                db=self.db,
+                product=self.product,
+                variant=self.variant,
+                payment=self.payment,
+                voucher_code=voucher_code,
+                notes="",
+                customer_info=customer_info,
+            )
+        else:
+            from cogs.order import process_purchase
+            await process_purchase(
+                interaction=interaction,
+                db=self.db,
+                product=self.product,
+                payment=self.payment,
+                voucher_code=voucher_code,
+                notes="",
+                customer_info=customer_info,
+            )
 
 
 # ─── Ticket Action View (Persistent) ─────────────────────────────────────────
@@ -682,11 +782,20 @@ class VariantPaymentSelectView(ui.View):
             return await interaction.response.send_message(
                 embed=error_embed("Error", "Payment tidak ditemukan."), ephemeral=True
             )
-        modal = VariantOrderModal(self.product, self.variant, payment, self.db)
+        # Cek custom fields per produk
+        fields = await self.db.get_product_fields(self.product["id"])
+        if fields:
+            modal = DynamicOrderModal(self.product, payment, self.db, fields, variant=self.variant)
+        else:
+            modal = VariantOrderModal(self.product, self.variant, payment, self.db)
         await interaction.response.send_modal(modal)
 
 
 class VariantOrderModal(ui.Modal, title="📝 Detail Pembelian"):
+    """
+    Fallback modal untuk varian produk yang BELUM diset custom fields-nya.
+    """
+
     voucher = ui.TextInput(label="Kode Voucher (opsional)", required=False, max_length=50)
     notes = ui.TextInput(
         label="Catatan (opsional)", required=False, max_length=300,
@@ -710,6 +819,7 @@ class VariantOrderModal(ui.Modal, title="📝 Detail Pembelian"):
             payment=self.payment,
             voucher_code=self.voucher.value.strip(),
             notes=self.notes.value.strip(),
+            customer_info={},
         )
 
 
