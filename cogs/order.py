@@ -79,8 +79,9 @@ async def _send_ticket_welcome(
     variant=None,
     discount_amount: float = 0.0,
     voucher_code: str = "",
+    customer_info: dict | None = None,
 ) -> None:
-    """Kirim welcome embed + payment info + bukti pembayaran button ke ticket."""
+    """Kirim welcome embed + payment info + customer info + bukti pembayaran button ke ticket."""
     from utils.embeds import ticket_welcome_embed
     from utils.views import PaymentProofView
 
@@ -98,12 +99,29 @@ async def _send_ticket_welcome(
         color=Config.COLOR_INFO,
     )
 
+    embeds_to_send = [ticket_embed_msg, payment_info_embed]
+
+    # ── Customer Info Embed — hanya kirim jika ada data yang diisi ────────────
+    info = customer_info or {}
+    if info:
+        customer_embed = discord.Embed(
+            title="👤 Data Customer",
+            color=Config.COLOR_PRIMARY,
+        )
+        for label, value in info.items():
+            display = f"```{value}```" if value else "*tidak diisi*"
+            customer_embed.add_field(name=label, value=display, inline=False)
+        customer_embed.set_footer(
+            text="⚠️ Data ini bersifat rahasia — jangan dibagikan ke pihak lain."
+        )
+        embeds_to_send.append(customer_embed)
+
     ticket_view = TicketActionView(db)
     proof_view = PaymentProofView(order["id"], db)
 
     await ticket_channel.send(
         content=f"🎫 {user.mention} | Ticket Pembelian",
-        embeds=[ticket_embed_msg, payment_info_embed],
+        embeds=embeds_to_send,
         view=ticket_view,
     )
     await ticket_channel.send(
@@ -119,6 +137,7 @@ async def process_purchase(
     payment,
     voucher_code: str = "",
     notes: str = "",
+    customer_info: dict | None = None,
 ) -> None:
     """Purchase flow untuk produk TANPA varian."""
     await interaction.response.defer(ephemeral=True)
@@ -176,8 +195,12 @@ async def process_purchase(
     if voucher_row and voucher_row is not False:
         await db.use_voucher(voucher_row["id"], interaction.user.id, order_id)
 
-    await _send_ticket_welcome(ticket_channel, db, interaction.user, order, product, payment,
-                                discount_amount=discount_amount, voucher_code=voucher_code)
+    await _send_ticket_welcome(
+        ticket_channel, db, interaction.user, order, product, payment,
+        discount_amount=discount_amount,
+        voucher_code=voucher_code,
+        customer_info=customer_info,
+    )
 
     await interaction.followup.send(
         embed=success_embed(
@@ -208,6 +231,7 @@ async def process_purchase_variant(
     payment,
     voucher_code: str = "",
     notes: str = "",
+    customer_info: dict | None = None,
 ) -> None:
     """Purchase flow untuk produk DENGAN varian."""
     await interaction.response.defer(ephemeral=True)
@@ -259,7 +283,10 @@ async def process_purchase_variant(
 
     await _send_ticket_welcome(
         ticket_channel, db, interaction.user, order, product, payment,
-        variant=variant, discount_amount=discount_amount, voucher_code=voucher_code,
+        variant=variant,
+        discount_amount=discount_amount,
+        voucher_code=voucher_code,
+        customer_info=customer_info,
     )
 
     await interaction.followup.send(

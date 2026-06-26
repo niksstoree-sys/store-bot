@@ -379,5 +379,217 @@ class ProductCog(commands.Cog, name="Product"):
         )
 
 
+    # ─── /product fields ──────────────────────────────────────────────────────
+    # Subgroup untuk manage custom input fields per produk.
+    # Max 4 field per produk (slot ke-5 dipakai voucher).
+
+    fields_group = app_commands.Group(
+        name="fields",
+        description="Kelola field input customer per produk.",
+        parent=product_group,
+    )
+
+    @fields_group.command(name="add", description="Tambah field input ke produk.")
+    @app_commands.guild_only()
+    @app_commands.describe(
+        product_id="ID produk",
+        label="Label field yang tampil ke customer (misal: Username ML, Zone ID)",
+        placeholder="Contoh / hint yang tampil di dalam kotak (opsional)",
+        required="Wajib diisi customer? (default: Ya)",
+    )
+    async def fields_add(
+        self,
+        interaction: discord.Interaction,
+        product_id: int,
+        label: str,
+        placeholder: str = "",
+        required: bool = True,
+    ) -> None:
+        if not is_admin(interaction.user):
+            return await interaction.response.send_message(
+                embed=error_embed("Akses Ditolak", "Hanya admin."), ephemeral=True
+            )
+
+        product = await self.db.get_product(product_id)
+        if not product:
+            return await interaction.response.send_message(
+                embed=error_embed("Error", f"Produk ID `{product_id}` tidak ditemukan."),
+                ephemeral=True,
+            )
+
+        existing = await self.db.get_product_fields(product_id)
+        if len(existing) >= 4:
+            return await interaction.response.send_message(
+                embed=error_embed(
+                    "Batas Tercapai",
+                    f"Produk **{product['name']}** sudah punya **4 field** (maksimal).\n"
+                    "Hapus salah satu dulu dengan `/product fields remove`.",
+                ),
+                ephemeral=True,
+            )
+
+        label = clean_input(label)[:45]
+        if not label:
+            return await interaction.response.send_message(
+                embed=error_embed("Error", "Label tidak boleh kosong."), ephemeral=True
+            )
+
+        field_id = await self.db.add_product_field(
+            product_id=product_id,
+            label=label,
+            placeholder=clean_input(placeholder)[:100],
+            is_required=int(required),
+            position=len(existing),
+        )
+
+        req_text = "✅ Wajib" if required else "⬜ Opsional"
+        await interaction.response.send_message(
+            embed=success_embed(
+                "Field Ditambahkan",
+                f"Field **{label}** ({req_text}) ditambahkan ke produk **{product['name']}**!\n"
+                f"ID Field: `{field_id}`",
+            ),
+            ephemeral=True,
+        )
+        await self.db.log_activity(
+            action="Product Field Added",
+            actor_id=interaction.user.id,
+            actor_name=str(interaction.user),
+            target=product["name"],
+            details=f"Field: '{label}', Required: {required}",
+        )
+
+    @fields_group.command(name="list", description="Tampilkan semua field input produk.")
+    @app_commands.guild_only()
+    @app_commands.describe(product_id="ID produk")
+    async def fields_list(
+        self, interaction: discord.Interaction, product_id: int
+    ) -> None:
+        if not is_admin(interaction.user):
+            return await interaction.response.send_message(
+                embed=error_embed("Akses Ditolak", "Hanya admin."), ephemeral=True
+            )
+
+        product = await self.db.get_product(product_id)
+        if not product:
+            return await interaction.response.send_message(
+                embed=error_embed("Error", f"Produk ID `{product_id}` tidak ditemukan."),
+                ephemeral=True,
+            )
+
+        await interaction.response.defer(ephemeral=True)
+        fields = await self.db.get_product_fields(product_id)
+
+        embed = _base_embed(
+            title=f"📋 Custom Fields — {product['name']}",
+            color=Config.COLOR_INFO,
+        )
+
+        if not fields:
+            embed.description = (
+                "Produk ini belum punya custom field.\n"
+                "Tambah dengan `/product fields add`.\n\n"
+                "Selama belum ada field, customer hanya mengisi voucher saja."
+            )
+        else:
+            embed.description = f"**{len(fields)}/4** field diset. Slot ke-5 selalu untuk kode voucher."
+            for f in fields:
+                req = "✅ Wajib" if f["is_required"] else "⬜ Opsional"
+                placeholder_text = f"\nPlaceholder: *{f['placeholder']}*" if f["placeholder"] else ""
+                embed.add_field(
+                    name=f"`ID:{f['id']}` {f['label']}",
+                    value=f"{req}{placeholder_text}",
+                    inline=False,
+                )
+
+        await interaction.followup.send(embed=embed, ephemeral=True)
+
+    @fields_group.command(name="remove", description="Hapus field input dari produk.")
+    @app_commands.guild_only()
+    @app_commands.describe(field_id="ID field yang ingin dihapus (lihat dengan /product fields list)")
+    async def fields_remove(
+        self, interaction: discord.Interaction, field_id: int
+    ) -> None:
+        if not is_admin(interaction.user):
+            return await interaction.response.send_message(
+                embed=error_embed("Akses Ditolak", "Hanya admin."), ephemeral=True
+            )
+
+        field = await self.db.get_product_field(field_id)
+        if not field:
+            return await interaction.response.send_message(
+                embed=error_embed("Error", f"Field ID `{field_id}` tidak ditemukan."),
+                ephemeral=True,
+            )
+
+        await self.db.delete_product_field(field_id)
+        await interaction.response.send_message(
+            embed=success_embed(
+                "Field Dihapus",
+                f"Field **{field['label']}** berhasil dihapus.",
+            ),
+            ephemeral=True,
+        )
+        await self.db.log_activity(
+            action="Product Field Removed",
+            actor_id=interaction.user.id,
+            actor_name=str(interaction.user),
+            target=field["label"],
+            details=f"Field ID: {field_id}",
+        )
+
+    @fields_group.command(name="clear", description="Hapus SEMUA field input dari produk.")
+    @app_commands.guild_only()
+    @app_commands.describe(product_id="ID produk")
+    async def fields_clear(
+        self, interaction: discord.Interaction, product_id: int
+    ) -> None:
+        if not is_admin(interaction.user):
+            return await interaction.response.send_message(
+                embed=error_embed("Akses Ditolak", "Hanya admin."), ephemeral=True
+            )
+
+        product = await self.db.get_product(product_id)
+        if not product:
+            return await interaction.response.send_message(
+                embed=error_embed("Error", f"Produk ID `{product_id}` tidak ditemukan."),
+                ephemeral=True,
+            )
+
+        fields = await self.db.get_product_fields(product_id)
+        if not fields:
+            return await interaction.response.send_message(
+                embed=info_embed("Kosong", "Produk ini tidak punya field custom."),
+                ephemeral=True,
+            )
+
+        from utils.views import ConfirmView
+        view = ConfirmView(interaction.user.id)
+        await interaction.response.send_message(
+            embed=discord.Embed(
+                title="⚠️ Hapus Semua Field",
+                description=f"Hapus **{len(fields)} field** dari produk **{product['name']}**? Lanjutkan?",
+                color=Config.COLOR_WARNING,
+            ),
+            view=view,
+            ephemeral=True,
+        )
+        await view.wait()
+
+        if not view.confirmed:
+            return await interaction.edit_original_response(
+                embed=info_embed("Dibatalkan", "Penghapusan dibatalkan."), view=None
+            )
+
+        await self.db.clear_product_fields(product_id)
+        await interaction.edit_original_response(
+            embed=success_embed(
+                "Field Dihapus",
+                f"Semua field produk **{product['name']}** berhasil dihapus.",
+            ),
+            view=None,
+        )
+
+
 async def setup(bot: commands.Bot) -> None:
     await bot.add_cog(ProductCog(bot, bot.db))
