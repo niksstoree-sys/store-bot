@@ -79,9 +79,9 @@ async def _send_ticket_welcome(
     variant=None,
     discount_amount: float = 0.0,
     voucher_code: str = "",
-    customer_info: dict | None = None,
+    field_values: Optional[list] = None,
 ) -> None:
-    """Kirim welcome embed + payment info + customer info + bukti pembayaran button ke ticket."""
+    """Kirim welcome embed + data user + payment info + bukti pembayaran button ke ticket."""
     from utils.embeds import ticket_welcome_embed
     from utils.views import PaymentProofView
 
@@ -99,29 +99,30 @@ async def _send_ticket_welcome(
         color=Config.COLOR_INFO,
     )
 
-    embeds_to_send = [ticket_embed_msg, payment_info_embed]
+    embeds = [ticket_embed_msg, payment_info_embed]
 
-    # ── Customer Info Embed — hanya kirim jika ada data yang diisi ────────────
-    info = customer_info or {}
-    if info:
-        customer_embed = discord.Embed(
-            title="👤 Data Customer",
-            color=Config.COLOR_PRIMARY,
+    # Tampilkan data user yang diisi (field values)
+    if field_values:
+        data_embed = discord.Embed(
+            title="📋 Data Akun User",
+            description="Data yang diisi user untuk proses top up:",
+            color=Config.COLOR_SUCCESS,
         )
-        for label, value in info.items():
-            display = f"```{value}```" if value else "*tidak diisi*"
-            customer_embed.add_field(name=label, value=display, inline=False)
-        customer_embed.set_footer(
-            text="⚠️ Data ini bersifat rahasia — jangan dibagikan ke pihak lain."
-        )
-        embeds_to_send.append(customer_embed)
+        for field_name, field_label, value in field_values:
+            data_embed.add_field(
+                name=field_label,
+                value=f"```{value}```",
+                inline=True,
+            )
+        data_embed.set_footer(text="⚡ Pastikan data di atas benar sebelum konfirmasi!")
+        embeds.append(data_embed)
 
     ticket_view = TicketActionView(db)
     proof_view = PaymentProofView(order["id"], db)
 
     await ticket_channel.send(
         content=f"🎫 {user.mention} | Ticket Pembelian",
-        embeds=embeds_to_send,
+        embeds=embeds,
         view=ticket_view,
     )
     await ticket_channel.send(
@@ -137,7 +138,7 @@ async def process_purchase(
     payment,
     voucher_code: str = "",
     notes: str = "",
-    customer_info: dict | None = None,
+    field_values: Optional[list] = None,
 ) -> None:
     """Purchase flow untuk produk TANPA varian."""
     await interaction.response.defer(ephemeral=True)
@@ -182,6 +183,10 @@ async def process_purchase(
     )
     order = await db.get_order(order_id)
 
+    # Simpan field values
+    if field_values:
+        await db.save_order_field_values(order_id, field_values)
+
     ticket_channel = await _create_ticket_channel(interaction, db, order_id, product["name"], interaction.user)
     if not ticket_channel:
         await db.update_order(order_id, status="cancelled")
@@ -197,9 +202,8 @@ async def process_purchase(
 
     await _send_ticket_welcome(
         ticket_channel, db, interaction.user, order, product, payment,
-        discount_amount=discount_amount,
-        voucher_code=voucher_code,
-        customer_info=customer_info,
+        discount_amount=discount_amount, voucher_code=voucher_code,
+        field_values=field_values,
     )
 
     await interaction.followup.send(
@@ -231,7 +235,7 @@ async def process_purchase_variant(
     payment,
     voucher_code: str = "",
     notes: str = "",
-    customer_info: dict | None = None,
+    field_values: Optional[list] = None,
 ) -> None:
     """Purchase flow untuk produk DENGAN varian."""
     await interaction.response.defer(ephemeral=True)
@@ -268,6 +272,10 @@ async def process_purchase_variant(
     await db.update_order(order_id, variant_id=variant["id"], variant_name=variant["name"])
     order = await db.get_order(order_id)
 
+    # Simpan field values
+    if field_values:
+        await db.save_order_field_values(order_id, field_values)
+
     ticket_channel = await _create_ticket_channel(interaction, db, order_id, product["name"], interaction.user)
     if not ticket_channel:
         await db.update_order(order_id, status="cancelled")
@@ -283,10 +291,8 @@ async def process_purchase_variant(
 
     await _send_ticket_welcome(
         ticket_channel, db, interaction.user, order, product, payment,
-        variant=variant,
-        discount_amount=discount_amount,
-        voucher_code=voucher_code,
-        customer_info=customer_info,
+        variant=variant, discount_amount=discount_amount, voucher_code=voucher_code,
+        field_values=field_values,
     )
 
     await interaction.followup.send(
