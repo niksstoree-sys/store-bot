@@ -30,7 +30,7 @@ class Config:
     BOT_ACTIVITY: str = os.getenv("BOT_ACTIVITY", "watching")
 
     # ─── Store Settings ───────────────────────────────────────────────────────
-    STORE_NAME: str = os.getenv("STORE_NAME", "Noctra Store!")
+    STORE_NAME: str = os.getenv("STORE_NAME", "Premium Store")
     STORE_DESCRIPTION: str = os.getenv(
         "STORE_DESCRIPTION",
         "Temukan produk digital berkualitas dengan harga terjangkau!"
@@ -39,7 +39,7 @@ class Config:
     STORE_CURRENCY: str = os.getenv("STORE_CURRENCY", "Rp")
 
     # ─── Webhook Logging ──────────────────────────────────────────────────────
-    LOG_WEBHOOK_URL: str = os.getenv("LOG_WEBHOOK_URL", "https://canary.discord.com/api/webhooks/1485406771626508450/rhNL8fW03mUj3QHrVhfuRgExhtiaEzZhkj4ZKy4rJsqNzlc3XrgXFLSUIYMgoImp5P5C")
+    LOG_WEBHOOK_URL: str = os.getenv("LOG_WEBHOOK_URL", "")
 
     # ─── Backup Settings ──────────────────────────────────────────────────────
     BACKUP_INTERVAL_HOURS: int = int(os.getenv("BACKUP_INTERVAL_HOURS", "24"))

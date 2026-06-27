@@ -32,6 +32,7 @@ COGS: list[str] = [
     "cogs.admin",
     "cogs.variant",
     "cogs.rating",
+    "cogs.field",
 ]
 
 
