@@ -183,6 +183,32 @@ CREATE TABLE IF NOT EXISTS activity_logs (
 );
 """
 
+
+CREATE_PRODUCT_FIELDS = """
+CREATE TABLE IF NOT EXISTS product_fields (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    product_id  INTEGER NOT NULL,
+    field_name  TEXT NOT NULL,
+    field_label TEXT NOT NULL,
+    placeholder TEXT DEFAULT '',
+    is_required INTEGER DEFAULT 1,
+    position    INTEGER DEFAULT 0,
+    created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE CASCADE
+);
+"""
+
+CREATE_ORDER_FIELD_VALUES = """
+CREATE TABLE IF NOT EXISTS order_field_values (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    order_id    INTEGER NOT NULL,
+    field_name  TEXT NOT NULL,
+    field_label TEXT NOT NULL,
+    value       TEXT NOT NULL,
+    FOREIGN KEY (order_id) REFERENCES orders(id) ON DELETE CASCADE
+);
+"""
+
 # ─── All tables in creation order ─────────────────────────────────────────────
 ALL_TABLES: list[str] = [
     CREATE_CATEGORIES,
@@ -197,6 +223,8 @@ ALL_TABLES: list[str] = [
     CREATE_SETTINGS,
     CREATE_PURCHASE_HISTORY,
     CREATE_LOGS,
+    CREATE_PRODUCT_FIELDS,
+    CREATE_ORDER_FIELD_VALUES,
 ]
 
 # ─── Default seed data ────────────────────────────────────────────────────────

@@ -756,3 +756,48 @@ class Database:
         return await self._execute(
             "SELECT * FROM ratings ORDER BY created_at DESC LIMIT ?", (limit,), fetch="all",
         ) or []
+
+    # ─── Product Required Fields ──────────────────────────────────────────────
+
+    async def get_product_fields(self, product_id: int) -> list:
+        return await self._execute(
+            "SELECT * FROM product_fields WHERE product_id = ? ORDER BY position ASC, id ASC",
+            (product_id,), fetch="all",
+        ) or []
+
+    async def create_product_field(
+        self, product_id: int, field_name: str, field_label: str,
+        placeholder: str = "", is_required: int = 1, position: int = 0
+    ) -> int:
+        return await self._execute(
+            """INSERT INTO product_fields
+               (product_id, field_name, field_label, placeholder, is_required, position)
+               VALUES (?, ?, ?, ?, ?, ?)""",
+            (product_id, field_name, field_label, placeholder, is_required, position),
+        )
+
+    async def delete_product_field(self, field_id: int) -> int:
+        return await self._execute(
+            "DELETE FROM product_fields WHERE id = ?", (field_id,)
+        )
+
+    async def delete_all_product_fields(self, product_id: int) -> None:
+        await self._execute(
+            "DELETE FROM product_fields WHERE product_id = ?", (product_id,)
+        )
+
+    async def save_order_field_values(
+        self, order_id: int, field_values: list[tuple[str, str, str]]
+    ) -> None:
+        """Save user-submitted field values for an order."""
+        params = [(order_id, name, label, value) for name, label, value in field_values]
+        await self._executemany(
+            "INSERT INTO order_field_values (order_id, field_name, field_label, value) VALUES (?, ?, ?, ?)",
+            params,
+        )
+
+    async def get_order_field_values(self, order_id: int) -> list:
+        return await self._execute(
+            "SELECT * FROM order_field_values WHERE order_id = ?",
+            (order_id,), fetch="all",
+        ) or []
